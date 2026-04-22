@@ -1,0 +1,28 @@
+{
+  "name": "gdlxp-pipeline",
+  "version": "0.1.0",
+  "description": "AI-powered event aggregation pipeline for GDL XP.",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file=.env src/server.js",
+    "start": "node src/server.js"
+  },
+  "keywords": [
+    "events",
+    "aggregation",
+    "pipeline",
+    "express",
+    "postgres"
+  ],
+  "author": "Adnan Bucio",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "pg": "^8.20.0"
+  }
+}
