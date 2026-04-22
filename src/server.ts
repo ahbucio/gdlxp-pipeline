@@ -11,7 +11,7 @@ const server = app.listen(config.port, () => {
 
 // Graceful shutdown: close HTTP server + DB pool on SIGTERM/SIGINT.
 // Railway sends SIGTERM when redeploying; handling it prevents dropped requests.
-const shutdown = async (signal) => {
+const shutdown = async (signal: string) => {
   console.log(`[server] ${signal} received. Shutting down gracefully...`);
   server.close(async () => {
     await pool.end();
