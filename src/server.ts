@@ -4,9 +4,25 @@
 import { app } from './app.js';
 import { config } from './config/env.js';
 import { pool } from './db/index.js';
+import { runMigrations } from './db/migrate.js';
 
-const server = app.listen(config.port, () => {
-  console.log(`[server] Listening on port ${config.port} (${config.env})`);
+// Declared at module scope so the shutdown handler can close it.
+// Assigned inside start() after migrations succeed.
+let server: ReturnType<typeof app.listen>;
+
+async function start(): Promise<void> {
+  console.log('[server] Running migrations...');
+  await runMigrations();
+  console.log('[server] Migrations complete.');
+
+  server = app.listen(config.port, () => {
+    console.log(`[server] Listening on port ${config.port} (${config.env})`);
+  });
+}
+
+start().catch((err) => {
+  console.error('[server] Startup failed:', err);
+  process.exit(1);
 });
 
 // Graceful shutdown: close HTTP server + DB pool on SIGTERM/SIGINT.
