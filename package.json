@@ -10,7 +10,8 @@
     "start": "node --env-file=.env dist/server.js",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
-"migrate": "tsx --env-file-if-exists=.env src/db/migrate.ts"
+    "migrate": "tsx --env-file-if-exists=.env src/db/migrate.ts",
+    "seed": "tsx --env-file-if-exists=.env src/db/seed.ts"
   },
   "keywords": [
     "events",
