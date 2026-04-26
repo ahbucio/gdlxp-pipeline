@@ -1,19 +1,16 @@
-// Express app configuration.
-// Exports the configured app; does NOT start the server (that's server.js).
-// This separation makes the app testable and swappable.
-
-import express, { Request, Response } from 'express';
+import express from 'express';
 import { healthRouter } from './routes/health.js';
+import { venuesRouter } from './routes/venues.js';
+import { eventsRouter } from './routes/events.js';
+import { notFoundHandler, errorHandler } from './middleware/error.js';
 
 export const app = express();
 
-// Middleware
-app.use(express.json()); // Parses JSON request bodies into req.body
+app.use(express.json());
 
-// Routes
 app.use(healthRouter);
+app.use('/api/venues', venuesRouter);
+app.use('/api/events', eventsRouter);
 
-// 404 handler for any unmatched route
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({ status: 'error', message: 'Route not found' });
-});
+app.use(notFoundHandler);
+app.use(errorHandler);
