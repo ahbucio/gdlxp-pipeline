@@ -24,3 +24,7 @@ Thumbs.db
 dist/
 build/
 coverage/
+
+# Local test fixtures
+test-bad.json
+test-input.json
