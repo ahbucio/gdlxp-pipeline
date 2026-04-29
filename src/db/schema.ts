@@ -13,7 +13,17 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  pgEnum,
 } from 'drizzle-orm/pg-core';
+
+// ---------- enums ----------
+// Phase 3: tracks whether a scraped+extracted event has been pushed to Bubble yet.
+// 'pending' = freshly inserted by the scraper, awaiting human approval in Bubble.
+// 'synced'  = pushed to Bubble (Phase 4 will flip this).
+// Stored as a real Postgres ENUM type, not a text+CHECK column. The DB rejects any
+// value outside the two listed names — type safety lives at the database, not just
+// in TS.
+export const eventStatusEnum = pgEnum('event_status', ['pending', 'synced']);
 
 // ---------- venues ----------
 export const venues = pgTable('venues', {
@@ -64,11 +74,15 @@ export const events = pgTable(
     description: text('description'),
     starts_at: timestamp('starts_at', { withTimezone: true }).notNull(),
     ends_at: timestamp('ends_at', { withTimezone: true }),
-    url: text('url'),
-
-    // jsonb = binary JSON. Parsed on write, stored efficiently, fast to query into later.
-    // Nullable because human-created events (via CRUD later) won't have a raw source.
+url: text('url'),
+    // Phase 3: poster/thumbnail image URL captured by the scraper.
+    // Nullable — human-created events via CRUD won't have one, and not every
+    // scraped event will either.
+    image_url: text('image_url'),
     raw_source: jsonb('raw_source'),
+    // Phase 3: lifecycle status. Defaults to 'pending' on insert; flipped to
+    // 'synced' by Phase 4 once the row is pushed to Bubble.
+    status: eventStatusEnum('status').notNull().default('pending'),
 
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updated_at: timestamp('updated_at', { withTimezone: true })

@@ -1,6 +1,6 @@
 # GDL XP Pipeline
 
-Guadalajara event aggregation API. A TypeScript Express server with Postgres-backed venues and events CRUD, an LLM-powered event extraction endpoint (Google Gemini 2.5 Flash with native structured output), Zod validation, structured error handling, and smoke-test coverage.
+Guadalajara event aggregation API. A TypeScript Express server with Postgres-backed venues and events CRUD, an LLM-powered event extraction endpoint (Google Gemini 2.5 Flash with native structured output), a Playwright scraper that ingests events end-to-end into Postgres, Zod validation, structured error handling, and smoke-test coverage.
 
 ---
 
@@ -15,6 +15,7 @@ Guadalajara event aggregation API. A TypeScript Express server with Postgres-bac
 | Database | Postgres (Neon) |
 | Validation | Zod v4 |
 | LLM | Google Gemini 2.5 Flash (`@google/genai`) |
+| Scraping | Playwright (headless Chromium) |
 | Testing | Vitest + supertest |
 | Deployment | Railway |
 
@@ -26,6 +27,7 @@ Guadalajara event aggregation API. A TypeScript Express server with Postgres-bac
 git clone https://github.com/ahbucio/gdlxp-pipeline.git
 cd gdlxp-pipeline
 npm install
+npx playwright install chromium
 ```
 
 Create a `.env` file in the project root. See `.env.example` for required variables. Never commit `.env`.
@@ -49,6 +51,7 @@ npm run dev       # start the dev server with hot reload
 | `npm run db:generate` | Generate Drizzle migration files from schema changes |
 | `npm run migrate` | Apply pending migrations to the database |
 | `npm run seed` | Insert seed data (idempotent — safe to re-run) |
+| `npm run scrape:auditorio` | Scrape Auditorio Telmex, extract via Gemini, insert events with `status='pending'` |
 | `npm test` | Run all tests once and exit |
 | `npm run test:watch` | Run tests in watch mode (for local iteration) |
 
@@ -73,8 +76,12 @@ src/
 │   ├── venues.ts      # CRUD routes for venues
 │   ├── events.ts      # CRUD routes for events
 │   └── extractEvent.ts # POST /api/extract-event — LLM extraction (Gemini 2.5 Flash)
-└── services/
-    └── extractEvent.ts # Gemini SDK call + prompt + Zod-validated output
+├── services/
+│   └── extractEvent.ts # Gemini SDK call + prompt + Zod-validated output
+├── scrapers/
+│   └── auditorioTelmex.ts # Playwright scraper for Auditorio Telmex listings page
+└── scripts/
+    └── scrapeAndIngest.ts # End-to-end glue: scrape → extract → insert with status='pending'
 
 drizzle/               # Generated migration files (committed to repo)
 test/                  # Vitest smoke tests (not compiled into dist/)
@@ -182,6 +189,50 @@ LLM output is non-deterministic: identical inputs may produce slightly different
 
 ---
 
+## Scraping Pipeline
+
+The scraper ingests events from a public Mexican event venue (Auditorio Telmex) end-to-end:
+
+1. **Scrape** the venue's listings page with Playwright (headless Chromium).
+2. **Extract** structured fields from each event's raw text by calling the `extractEvent()` service directly (no HTTP hop — same function backs both this pipeline and the `POST /api/extract-event` route).
+3. **Insert** into the `events` table with `status = 'pending'`, FK to the venue, captured image URL, and the extracted structured fields. The `raw_source` column stores both the scraped text and the LLM's extraction for audit.
+
+### Run it
+
+```bash
+npm run scrape:auditorio
+```
+
+By default Playwright runs headless. To watch the browser drive the page (useful for debugging selectors):
+
+```powershell
+$env:SCRAPER_HEADED=1; npm run scrape:auditorio
+```
+
+### Status column
+
+The `events` table has a `status` enum column with two values:
+
+- `pending` — newly inserted by the scraper, awaiting human approval in the existing Bubble admin UI.
+- `synced` — pushed to Bubble. Phase 4 will flip the status as part of the push process.
+
+### Idempotency
+
+The scraper uses a simple dedup key: `(venue_id, title, starts_at)`. Re-running the script does not produce duplicates. Phase 4 will replace this with a stronger key (the source URL `evento.php?e=NNNN`, already captured in the `url` column).
+
+### Current scope
+
+- **Auditorio Telmex only.** Teatro Diana was the original target but was unreachable for ~1 week at sprint start; target swap was approved and applied.
+- **Listings page only.** Each event has a richer detail page with a full poster and Spanish description. Phase 4+ will visit detail pages to enrich `description` and `image_url`.
+
+### Architecture notes
+
+- **Date anchoring.** The LLM prompt receives today's date and resolves year-less dates (e.g. *"Miércoles 29 Abril 21:00 hrs"*) to the upcoming occurrence.
+- **No retries.** Extraction failures are logged and the script continues. Retry policy is intentionally deferred.
+- **Polite by design.** Single-navigation per run, realistic User-Agent, no concurrency, no anti-detection.
+
+---
+
 ## Error Envelope
 
 All errors return a consistent JSON shape:
@@ -235,4 +286,5 @@ Live URL: `https://gdlxp-pipeline-production.up.railway.app`
 - **Railway start command** — local `npm start` uses `--env-file=.env`; Railway injects env vars via its own mechanism. Divergence is intentional and documented.
 - **CI/CD** — tests do not run automatically on push. Deferred to a future phase.
 - **Coverage targets** — no coverage reporting configured. Deferred.
-- **Date-relative extraction** — the LLM extraction endpoint does not anchor relative dates ("este jueves") because the prompt does not inject the current date. Deferred to the persistence phase, where the date will come from the scrape time.
+- **Detail-page enrichment** — the scraper currently extracts data only from the listings page. Each event has a richer detail page with a full poster image and a Spanish description. Phase 4+ will visit detail pages per event to populate `description` and upgrade `image_url`.
+- **Source-URL dedup** — Phase 3 dedup uses `(venue_id, title, starts_at)`. Phase 4 will switch to the `evento.php?e=NNNN` source URL (already captured in the `url` column) as the canonical dedup key.

@@ -45,18 +45,32 @@ const geminiResponseSchema = {
 };
 
 // ---------- System instruction ----------
-// Defines the model's role and constraints. Stays constant across all calls.
-const SYSTEM_INSTRUCTION = `You extract structured event data from raw text such as Instagram captions for events in Guadalajara, Mexico.
+// Built per-call as a function (not a constant) so the current date can be
+// injected fresh on every extraction. Many Mexican event venues publish
+// dates without a year (e.g. "Miércoles 29 Abril 21:00 hrs"); the LLM
+// needs a date anchor to resolve them. We instruct it to use the *upcoming*
+// occurrence — handles year rollover correctly (a date in early January
+// scraped in late December resolves to next year, not the closing year).
+function buildSystemInstruction(today: Date): string {
+  const todayISO = today.toISOString().slice(0, 10); // YYYY-MM-DD
+
+  return `You extract structured event data from raw text such as Instagram captions or scraped event listings for events in Guadalajara, Mexico.
+
+Today's date is ${todayISO}. Use this as your anchor when interpreting dates.
 
 Rules:
 - title: a concise event name (1-100 chars). Required.
-- starts_at: ISO 8601 datetime string (e.g. "2025-11-15T20:00:00-06:00") if you can determine it; otherwise null. Use timezone -06:00 for Guadalajara unless the text states otherwise.
+- starts_at: ISO 8601 datetime string (e.g. "2026-11-15T20:00:00-06:00") if you can determine it; otherwise null. Use timezone -06:00 for Guadalajara unless the text states otherwise.
+
+  IMPORTANT: many sources publish dates without a year (e.g. "Miércoles 29 Abril 21:00 hrs"). When you encounter such a date, resolve it to the **upcoming** occurrence relative to today's date above. If the day-and-month has already passed this year, use next year. If it has not yet passed, use this year. Do this silently — do not return null just because the year was not stated.
+
 - ends_at: ISO 8601 datetime string if explicitly given; otherwise null. Do NOT guess end times.
 - description: a 1-3 sentence neutral summary of the event in the original language of the text. Never include hashtags, emojis, or @mentions.
 - venue_hint: the venue name as written in the text (e.g. "C3 Stage", "Foro Independencia"); null if no venue is mentioned.
 - location_hint: a neighborhood, address, or city if mentioned (e.g. "Providencia", "Av. Vallarta 1234"); null if not mentioned.
 
-Never invent information not present in the text. If a field is not extractable, return null (or "" for description if there is genuinely no descriptive content).`;
+Never invent information not present in the text. If a field is not extractable, return null (or "" for description if there is genuinely no descriptive content). The one exception is the year for year-less dates, which you should resolve as instructed above.`;
+}
 
 // ---------- Service function ----------
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
@@ -68,7 +82,7 @@ export async function extractEvent(rawText: string): Promise<ExtractedEvent> {
       model: 'gemini-2.5-flash',
       contents: rawText,
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: buildSystemInstruction(new Date()),
         responseMimeType: 'application/json',
         responseSchema: geminiResponseSchema,
       },
